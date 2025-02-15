@@ -4,6 +4,8 @@ from style import COLORS
 import random
 import os
 
+from typing import List
+
 from properties import Property
 from cards import Cards
 from board import Board
@@ -96,6 +98,37 @@ def refresh_board():
         add_to_output(color + f"\033[{board.locations[players[i].location].x+1};{board.locations[players[i].location].y+1+i}H{token}")
     
     add_to_output(COLORS.RESET)
+
+def initialize_color_groups(self):
+    color_map = {}
+    for prop in self.locations:
+        if prop.color not in color_map:
+            color_map[prop.color] = []
+        color_map[prop.color].append(prop)
+    
+    self.color_groups = {}
+    for color, props in color_map.items():
+        # Set prices based on color group
+        if color == COLORS.BROWN:
+            house_price = 50
+        elif color == COLORS.LIGHT_BLUE:
+            house_price = 50
+        elif color == COLORS.PINK:
+            house_price = 100
+        elif color == COLORS.ORANGE:
+            house_price = 100
+        elif color == COLORS.RED:
+            house_price = 150
+        elif color == COLORS.YELLOW:
+            house_price = 150
+        elif color == COLORS.GREEN:
+            house_price = 200
+        elif color == COLORS.DARK_BLUE:
+            house_price = 200
+        else:
+            raise ValueError(f"Unexpected color group: {color}")
+        
+        self.color_groups[color] = ColorGroup(props, house_price, house_price*5)
 
 def print_commands():
     """
@@ -300,7 +333,31 @@ def housing_logic(p: MonopolyPlayer, mode: str = "normal", propertyid: str = "",
             print("\033[38;0H" + ' ' * 70)
             print("\033[38;0HInvalid option!")
             return get_gameboard() + ss.set_cursor_str(0, 39) + f"[Property management]\nEnter an ID of one of your properties: {p.properties}" + COLORS.RESET
-    return get_gameboard()
+    return get_gameboard() 
+
+    prop = board.locations[propertyid]
+        cg = prop.color_group
+        
+        try:
+            houses = int(houses_input)
+            for _ in range(houses):
+                cg.add_house(prop)
+                p.cash -= cg.house_price
+            update_history(f"Built {houses} houses on {prop.name}")
+        except ValueError as e:
+            update_history(str(e))
+
+def sell_building_logic(p: MonopolyPlayer, propertyid: int):
+    prop = board.locations[propertyid]
+    cg = prop.color_group
+    
+    if not cg.building_steps:
+        return "No buildings to sell"
+    
+    if cg.sell_building(p):
+        return f"Sold building on {prop.name} for ${cg.house_price//2}"
+    return "Failed to sell building"
+
 
 def mortgage_logic(p:MonopolyPlayer):
     update_status(p, "properties")
@@ -388,7 +445,7 @@ def manage_properties(p:MonopolyPlayer):
     update_status(p, "properties")
     while True:
         print("\033[37;0H" + ' ' * 70)
-        choice = input("\033[37;0He to exit, b to buy houses, s to sell houses, m to mortgage:")
+        choice = input("\033[37;0He to exit, b to buy houses, s to sell houses, m to mortgage:, p to sell property")
         if choice == "e":
             break   
         elif choice == "b":
@@ -397,6 +454,16 @@ def manage_properties(p:MonopolyPlayer):
             sell_logic(p)
         elif choice == "m":
             mortgage_logic(p)
+        elif choice == "p"
+            buyer_id = input("Buyer player number: ")
+            propertyid = input("Property number: ")
+            price = input("Sale price: ")
+            try:
+                buyer = players[int(buyer_id)]
+                result = sell_property_logic(p, buyer, int(propertyid), int(price))
+                update_history(result)
+            except:
+                update_history("Invalid transaction")
         else:
             print("\033[38;0H" + ' ' * 70)
             print("\033[38;0HInvalid option!")
@@ -762,6 +829,59 @@ def game_loop():
         player_roll(num_rolls=1)
         #player_choice is where the player can choose to end their turn, manage properties, or view a deed
         player_choice()
+
+class ColorGroup:
+    def __init__(self, properties: List[Property], house_price: int, hotel_price: int):
+        self.properties = properties
+        self.house_price = house_price
+        self.hotel_price = hotel_price
+        self.building_steps = []  
+
+    def has_buildings(self):
+        return any(prop.houses > 0 or prop.hotel for prop in self.properties)
+
+    def add_house(self, property: Property):
+        if property not in self.properties:
+            raise ValueError("Property not in color group")
+        if property.hotel:
+            raise ValueError("Cannot add house to property with hotel")
+        if property.houses >= 4:
+            raise ValueError("Max houses reached")
+        self.building_steps.append(('house', property))
+        property.houses += 1
+
+    def add_hotel(self, property: Property):
+        if property not in self.properties:
+            raise ValueError("Property not in color group")
+        if property.houses < 4:
+            raise ValueError("Need 4 houses for hotel")
+        self.building_steps.append(('hotel', property))
+        property.houses = 0
+        property.hotel = True
+
+    def sell_building(self, player: MonopolyPlayer) -> bool:
+        if not self.building_steps:
+            return False
+
+        step_type, prop = self.building_steps.pop()
+        refund = 0
+
+        if step_type == 'house':
+            if prop.houses > 0:
+                prop.houses -= 1
+                refund = self.house_price // 2
+        elif step_type == 'hotel':
+            if prop.hotel:
+                prop.hotel = False
+                prop.houses = 4  
+                refund = self.hotel_price // 2
+
+        if refund > 0:
+            player.cash += refund
+            return True
+        return False
+
+
 
 if __name__ == "__main__": # For debugging purposes. Can play standalone
     ss.make_fullscreen()
